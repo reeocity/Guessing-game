@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guessing Game</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="styles.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <script defer src="script.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 Guessing Game</h1>
+        <div id="gameArea">
+            <div id="joinSection">
+                <div class="input-group">
+                    <input type="text" id="playerName" placeholder="Enter your name" autocomplete="off">
+                    <button id="joinGame">Join Game</button>
+                </div>
+            </div>
+
+            <div id="gameInfo">
+                <div id="playersSection">
+                    <h3>👥 Players (<span id="playerCount">0</span>)</h3>
+                    <ul id="playersList"></ul>
+                </div>
+                <div id="scoresSection">
+                    <h3>🏆 Scores</h3>
+                    <ul id="scoresList"></ul>
+                </div>
+            </div>
+
+            <div id="gameMasterSection" style="display:none;">
+                <h3>🎯 Game Master Controls</h3>
+                <div class="input-group">
+                    <input type="text" id="question" placeholder="Enter a question" autocomplete="off">
+                </div>
+                <div class="input-group">
+                    <input type="text" id="answer" placeholder="Enter the answer" autocomplete="off">
+                </div>
+                <button id="startGame">Start Game</button>
+            </div>
+
+            <div id="gameSession" style="display:none;">
+                <div id="gameStatus">
+                    <h2 id="questionDisplay"></h2>
+                    <div class="game-info">
+                        <p id="timeLeft">⏱️ Time left: 60 seconds</p>
+                        <p id="attemptsLeft">🎯 Attempts left: 3</p>
+                    </div>
+                </div>
+                <div id="chatArea">
+                    <div id="messages"></div>
+                    <div id="inputArea">
+                        <input type="text" id="userAnswer" placeholder="Type your answer or message..." autocomplete="off">
+                        <button id="submitAnswer">Submit</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
