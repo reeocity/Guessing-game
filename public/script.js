@@ -1,4 +1,24 @@
-const socket = io();
+const socket = io({
+    autoConnect: false,
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000
+});
+
+// Connect to the server
+socket.connect();
+
+// Handle connection errors
+socket.on('connect_error', (error) => {
+    console.error('Connection error:', error);
+    addMessage("System", "❌ Connection error. Trying to reconnect...");
+});
+
+socket.on('reconnect', (attemptNumber) => {
+    console.log('Reconnected after', attemptNumber, 'attempts');
+    addMessage("System", "✅ Reconnected to the server!");
+});
+
 let currentPlayer = null;
 let attemptsLeft = 3;
 

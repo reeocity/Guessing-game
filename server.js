@@ -11,8 +11,18 @@ const QuestionManager = require("./modules/question");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
 
+// Configure CORS for Socket.IO
+const io = new Server(server, {
+  cors: {
+    origin: process.env.NODE_ENV === "production" 
+      ? "https://your-vercel-app-url.vercel.app" 
+      : "http://localhost:5000",
+    methods: ["GET", "POST"]
+  }
+});
+
+// Serve static files from the public directory
 app.use(express.static(path.join(__dirname, "public")));
 
 // Initialize game components
@@ -177,6 +187,11 @@ io.on("connection", (socket) => {
     });
 });
 
-server.listen(5000, () => {
-    console.log("Server running on http://localhost:5000");
+// Update the server.listen to work with Vercel
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
 });
+
+// Export the Express API
+module.exports = app;
