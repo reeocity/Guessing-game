@@ -13,6 +13,9 @@ const QuestionManager = require("./modules/question");
 const app = express();
 const server = http.createServer(app);
 
+// Serve static files from the public directory
+app.use(express.static(path.join(__dirname, "public")));
+
 // Configure CORS for Socket.IO
 const io = new Server(server, {
   cors: {
@@ -27,8 +30,10 @@ const io = new Server(server, {
   pingInterval: parseInt(process.env.SOCKET_PING_INTERVAL)
 });
 
-// Serve static files from the public directory
-app.use(express.static(path.join(__dirname, "public")));
+// Serve Socket.IO client
+app.get('/socket.io/socket.io.js', (req, res) => {
+  res.sendFile(path.join(__dirname, 'node_modules/socket.io/client-dist/socket.io.js'));
+});
 
 // Initialize game components
 const playerManager = new PlayerManager();
