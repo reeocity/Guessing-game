@@ -2,6 +2,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
+require('dotenv').config();
 
 // Import modules
 const PlayerManager = require("./modules/player");
@@ -16,10 +17,14 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: process.env.NODE_ENV === "production" 
-      ? "https://your-vercel-app-url.vercel.app" 
-      : "http://localhost:5000",
-    methods: ["GET", "POST"]
-  }
+      ? process.env.CORS_ORIGIN_PROD 
+      : process.env.CORS_ORIGIN_DEV,
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  path: process.env.SOCKET_PATH,
+  pingTimeout: parseInt(process.env.SOCKET_PING_TIMEOUT),
+  pingInterval: parseInt(process.env.SOCKET_PING_INTERVAL)
 });
 
 // Serve static files from the public directory
@@ -188,9 +193,10 @@ io.on("connection", (socket) => {
 });
 
 // Update the server.listen to work with Vercel
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+    console.log(`CORS origin: ${process.env.NODE_ENV === "production" ? process.env.CORS_ORIGIN_PROD : process.env.CORS_ORIGIN_DEV}`);
 });
 
 // Export the Express API
