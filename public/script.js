@@ -46,8 +46,13 @@ socket.on("gameStarted", (data) => {
     attemptsLeft = 3;
     
     // Ensure round number is properly displayed
-    const roundNumber = data.round || 1;  // Fallback to 1 if round is undefined
+    const roundNumber = data.round || 1;
     addMessage("System", `🎮 Round ${roundNumber} started! Good luck everyone!`);
+    
+    // Focus on answer input for players
+    if (currentPlayer !== data.gameMaster) {
+        document.getElementById("userAnswer").focus();
+    }
 });
 
 // Time update
@@ -168,25 +173,62 @@ socket.on("gameEnded", (data) => {
     // Update scores
     updateScoresList(data.scores);
     
-    // If current player is the new game master, show game master controls
+    // Handle game master controls
+    const gameMasterSection = document.getElementById("gameMasterSection");
+    const startGameButton = document.getElementById("startGame");
+    const questionInput = document.getElementById("question");
+    const answerInput = document.getElementById("answer");
+    
     if (currentPlayer === data.gameMaster) {
-        document.getElementById("gameMasterSection").style.display = "block";
-        document.getElementById("startGame").disabled = false;  // Enable start game button
-        document.getElementById("question").disabled = false;   // Enable question input
-        document.getElementById("answer").disabled = false;     // Enable answer input
+        gameMasterSection.style.display = "block";
+        startGameButton.disabled = false;
+        questionInput.disabled = false;
+        answerInput.disabled = false;
         addMessage("System", `👑 You are now the game master for round ${data.round + 1}!`);
         
         // Clear previous question and answer
-        document.getElementById("question").value = "";
-        document.getElementById("answer").value = "";
+        questionInput.value = "";
+        answerInput.value = "";
+        
+        // Focus on question input for new game master
+        questionInput.focus();
     } else {
-        document.getElementById("gameMasterSection").style.display = "none";
+        gameMasterSection.style.display = "none";
     }
 });
 
-// Error handling
+// Add game state update handler
+socket.on("gameUpdated", (data) => {
+    // Update players list
+    updatePlayersList(data.players, data.gameMaster);
+    
+    // Update scores
+    updateScoresList(data.scores);
+    
+    // Update game master controls
+    const gameMasterSection = document.getElementById("gameMasterSection");
+    const startGameButton = document.getElementById("startGame");
+    const questionInput = document.getElementById("question");
+    const answerInput = document.getElementById("answer");
+    
+    if (currentPlayer === data.gameMaster) {
+        gameMasterSection.style.display = "block";
+        startGameButton.disabled = false;
+        questionInput.disabled = false;
+        answerInput.disabled = false;
+        
+        // If game is not started, focus on question input
+        if (data.gameState === 'waiting') {
+            questionInput.focus();
+        }
+    } else {
+        gameMasterSection.style.display = "none";
+    }
+});
+
+// Add error handler
 socket.on("error", (message) => {
-    addMessage("System", message, true);
+    addMessage("System", `❌ Error: ${message}`);
 });
 
 // Chat functionality

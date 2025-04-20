@@ -3,114 +3,72 @@ const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
 
+// Import modules
+const PlayerManager = require("./modules/player");
+const GameSession = require("./modules/gameSession");
+const GameTimer = require("./modules/timer");
+const QuestionManager = require("./modules/question");
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, "public")));
 
-let gameSession = {
-    players: [],
-    gameMaster: null,
-    question: null,
-    answer: null,
-    started: false,
-    scores: {},
-    attempts: {},      // Track attempts per player
-    timer: null,       // Game timer
-    timeLeft: 60,      // Time left in seconds
-    messages: [],      // Chat messages
-    winner: null,      // Track winner
-    round: 1          // Start with round 1
-};
-
-function resetGameSession() {
-    gameSession = {
-        players: [],
-        gameMaster: null,
-        question: null,
-        answer: null,
-        started: false,
-        scores: {},
-        attempts: {},
-        timer: null,
-        timeLeft: 60,
-        messages: [],
-        winner: null,
-        round: 1       // Reset to round 1
-    };
-}
+// Initialize game components
+const playerManager = new PlayerManager();
+const gameSession = new GameSession();
+const gameTimer = new GameTimer();
+const questionManager = new QuestionManager();
 
 function endGame(winner) {
-    // Clear the timer first
-    if (gameSession.timer) {
-        clearInterval(gameSession.timer);
-        gameSession.timer = null;
-    }
+    // Stop the timer
+    gameTimer.stop();
 
-    gameSession.started = false;
-    gameSession.winner = winner;
+    // End the current round
+    gameSession.endRound(winner);
     
-    // Only award points if the winner is not the game master
-    if (winner && winner !== gameSession.gameMaster) {
-        gameSession.scores[winner] = (gameSession.scores[winner] || 0) + 10;
+    // Award points if there's a winner who's not the game master
+    if (winner && winner !== playerManager.getNextGameMaster(winner)) {
+        playerManager.awardPoints(winner);
     }
     
     // Create end message
     const endMessage = winner 
-        ? winner === gameSession.gameMaster
-            ? `Game master ${winner} guessed correctly! The answer was: ${gameSession.answer}`
-            : `${winner} won round ${gameSession.round}! The answer was: ${gameSession.answer}`
-        : `Time's up for round ${gameSession.round}! The answer was: ${gameSession.answer}`;
+        ? winner === playerManager.getNextGameMaster(winner)
+            ? `Game master ${winner} guessed correctly! The answer was: ${questionManager.getAnswer()}`
+            : `${winner} won round ${gameSession.round}! The answer was: ${questionManager.getAnswer()}`
+        : `Time's up for round ${gameSession.round}! The answer was: ${questionManager.getAnswer()}`;
     
     // Add to chat
-    const chatMessage = {
-        player: "System",
-        message: endMessage,
-        timestamp: new Date()
-    };
-    gameSession.messages.push(chatMessage);
-    io.emit("newMessage", chatMessage);
+    gameSession.addMessage("System", endMessage);
+    io.emit("newMessage", gameSession.messages[gameSession.messages.length - 1]);
     
-    // Rotate game master
-    if (gameSession.players.length > 0) {
-        const currentMasterIndex = gameSession.players.indexOf(gameSession.gameMaster);
-        const nextMasterIndex = (currentMasterIndex + 1) % gameSession.players.length;
-        gameSession.gameMaster = gameSession.players[nextMasterIndex];
-    }
+    // Get the new game master before sending game end event
+    const newGameMaster = playerManager.getNextGameMaster(winner);
     
     // Send game end event to all players
     io.emit("gameEnded", {
         winner,
-        answer: gameSession.answer,
-        scores: gameSession.scores,
+        answer: questionManager.getAnswer(),
+        scores: playerManager.getScores(),
         timeExpired: !winner,
-        gameMaster: gameSession.gameMaster,
+        gameMaster: newGameMaster,
         round: gameSession.round,
-        isGameMasterWinner: winner === gameSession.gameMaster
+        isGameMasterWinner: winner === newGameMaster
     });
 
-    // Increment round number
-    gameSession.round++;
-    
-    // Reset game state for next round
-    gameSession.question = null;
-    gameSession.answer = null;
-    gameSession.winner = null;
-    gameSession.timeLeft = 60;
-    gameSession.started = false;  // Ensure game is not started
-    
-    // Reset attempts for all players
-    gameSession.players.forEach(player => {
-        gameSession.attempts[player] = 0;
-    });
+    // Reset for next round
+    questionManager.clear();
+    playerManager.resetAttempts();
 
-    // Notify all players of the new game master
+    // Notify all players of the new game state
     io.emit("gameUpdated", {
-        players: gameSession.players,
-        gameMaster: gameSession.gameMaster,
-        scores: gameSession.scores,
-        round: gameSession.round
+        players: playerManager.getPlayers(),
+        gameMaster: newGameMaster,
+        scores: playerManager.getScores(),
+        round: gameSession.round,
+        gameState: 'waiting'  // Always set to waiting after round ends
     });
 }
 
@@ -119,83 +77,79 @@ io.on("connection", (socket) => {
     let currentPlayer = null;
 
     socket.on("joinGame", (playerName) => {
-        if (!gameSession.started) {
-            if (!gameSession.players.includes(playerName)) {
-                currentPlayer = playerName;
-                gameSession.players.push(playerName);
-                gameSession.scores[playerName] = 0;
-                gameSession.attempts[playerName] = 0;
-                
-                if (!gameSession.gameMaster) {
-                    gameSession.gameMaster = playerName;
+        try {
+            if (!gameSession.started) {
+                if (playerManager.addPlayer(playerName)) {
+                    currentPlayer = playerName;
+                    const gameMaster = playerManager.getNextGameMaster(null);
+                    io.emit("gameUpdated", {
+                        players: playerManager.getPlayers(),
+                        gameMaster: gameMaster,
+                        scores: playerManager.getScores(),
+                        round: gameSession.round,
+                        gameState: 'waiting'
+                    });
                 }
-                
-                io.emit("gameUpdated", gameSession);
             }
+        } catch (error) {
+            socket.emit("error", error.message);
         }
     });
 
     socket.on("startGame", ({ question, answer }) => {
-        if (currentPlayer === gameSession.gameMaster && gameSession.players.length > 2) {
-            // Clear any existing timer
-            if (gameSession.timer) {
-                clearInterval(gameSession.timer);
-                gameSession.timer = null;
-            }
-
-            gameSession.question = question;
-            gameSession.answer = answer.toLowerCase();
-            gameSession.started = true;
-            gameSession.timeLeft = 60;
-            gameSession.winner = null;
-            
-            // Reset attempts for all players
-            gameSession.players.forEach(player => {
-                gameSession.attempts[player] = 0;
-            });
-
-            // Start game timer
-            gameSession.timer = setInterval(() => {
-                gameSession.timeLeft--;
-                io.emit("timeUpdate", gameSession.timeLeft);
+        try {
+            const currentGameMaster = playerManager.getNextGameMaster(null);
+            if (currentPlayer === currentGameMaster && playerManager.getPlayerCount() > 2) {
+                questionManager.setQuestion(question, answer);
+                gameSession.startRound(question, answer);
                 
-                if (gameSession.timeLeft <= 0) {
-                    endGame(null);
-                }
-            }, 1000);
+                // Start the timer
+                gameTimer.start((timeLeft) => {
+                    io.emit("timeUpdate", timeLeft);
+                    if (timeLeft <= 0) {
+                        endGame(null);
+                    }
+                });
 
-            io.emit("gameStarted", {
-                question,
-                timeLeft: gameSession.timeLeft,
-                round: gameSession.round
-            });
+                io.emit("gameStarted", {
+                    question,
+                    timeLeft: gameTimer.getTimeLeft(),
+                    round: gameSession.round,
+                    gameMaster: currentGameMaster
+                });
 
-            // Add game start message
-            const startMessage = {
-                player: "System",
-                message: `Round ${gameSession.round} started! Question: ${question}`,
-                timestamp: new Date()
-            };
-            gameSession.messages.push(startMessage);
-            io.emit("newMessage", startMessage);
-        } else if (gameSession.players.length <= 2) {
-            socket.emit("error", "Need more than 2 players to start the game");
-        } else if (currentPlayer !== gameSession.gameMaster) {
-            socket.emit("error", "Only the game master can start the game");
+                gameSession.addMessage("System", `Round ${gameSession.round} started! Question: ${question}`);
+                io.emit("newMessage", gameSession.messages[gameSession.messages.length - 1]);
+
+                // Update game state for all players
+                io.emit("gameUpdated", {
+                    players: playerManager.getPlayers(),
+                    gameMaster: currentGameMaster,
+                    scores: playerManager.getScores(),
+                    round: gameSession.round,
+                    gameState: 'playing'
+                });
+            } else if (playerManager.getPlayerCount() <= 2) {
+                socket.emit("error", "Need more than 2 players to start the game");
+            } else if (currentPlayer !== currentGameMaster) {
+                socket.emit("error", "Only the game master can start the game");
+            }
+        } catch (error) {
+            socket.emit("error", error.message);
         }
     });
 
     socket.on("submitAnswer", ({ player, answer }) => {
-        if (gameSession.started && !gameSession.winner && gameSession.attempts[player] < 3) {
-            gameSession.attempts[player]++;
+        if (gameSession.started && !gameSession.winner && playerManager.attempts[player] < 3) {
+            playerManager.attempts[player]++;
             
-            if (answer.toLowerCase() === gameSession.answer) {
+            if (questionManager.checkAnswer(answer)) {
                 endGame(player);
             } else {
-                const attemptsLeft = 3 - gameSession.attempts[player];
+                const attemptsLeft = 3 - playerManager.attempts[player];
                 socket.emit("wrongAnswer", `Incorrect! ${attemptsLeft} attempts left.`);
                 
-                if (gameSession.attempts[player] >= 3) {
+                if (playerManager.attempts[player] >= 3) {
                     socket.emit("outOfAttempts", "No more attempts left!");
                 }
             }
@@ -203,37 +157,21 @@ io.on("connection", (socket) => {
     });
 
     socket.on("sendMessage", ({ player, message }) => {
-        if (gameSession.players.includes(player)) {
-            const chatMessage = {
-                player,
-                message,
-                timestamp: new Date()
-            };
-            gameSession.messages.push(chatMessage);
-            io.emit("newMessage", chatMessage);
+        if (playerManager.getPlayers().includes(player)) {
+            gameSession.addMessage(player, message);
+            io.emit("newMessage", gameSession.messages[gameSession.messages.length - 1]);
         }
     });
 
     socket.on("disconnect", () => {
         if (currentPlayer) {
-            const index = gameSession.players.indexOf(currentPlayer);
-            if (index > -1) {
-                gameSession.players.splice(index, 1);
-                delete gameSession.scores[currentPlayer];
-                delete gameSession.attempts[currentPlayer];
-                
-                // If game master disconnects, assign new game master
-                if (currentPlayer === gameSession.gameMaster && gameSession.players.length > 0) {
-                    gameSession.gameMaster = gameSession.players[0];
-                }
-                
-                // If all players left, reset game session
-                if (gameSession.players.length === 0) {
-                    resetGameSession();
-                }
-                
-                io.emit("gameUpdated", gameSession);
-            }
+            playerManager.removePlayer(currentPlayer);
+            io.emit("gameUpdated", {
+                players: playerManager.getPlayers(),
+                gameMaster: playerManager.getNextGameMaster(null),
+                scores: playerManager.getScores(),
+                round: gameSession.round
+            });
         }
         console.log("User disconnected");
     });
