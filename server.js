@@ -19,15 +19,12 @@ app.use(express.static(path.join(__dirname, "public")));
 // Configure CORS for Socket.IO
 const io = new Server(server, {
   cors: {
-    origin: process.env.NODE_ENV === "production" 
-      ? process.env.CORS_ORIGIN_PROD 
-      : process.env.CORS_ORIGIN_DEV,
+    origin: "*", // Allow all origins in development
     methods: ["GET", "POST"],
     credentials: true
   },
-  path: process.env.SOCKET_PATH,
-  pingTimeout: parseInt(process.env.SOCKET_PING_TIMEOUT),
-  pingInterval: parseInt(process.env.SOCKET_PING_INTERVAL)
+  transports: ['polling', 'websocket'], // Enable both polling and websocket
+  allowEIO3: true // Allow Engine.IO v3 clients
 });
 
 // Serve Socket.IO client
@@ -230,12 +227,13 @@ io.on("connection", (socket) => {
     });
 });
 
-// Update the server.listen to work with Vercel
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
-    console.log(`CORS origin: ${process.env.NODE_ENV === "production" ? process.env.CORS_ORIGIN_PROD : process.env.CORS_ORIGIN_DEV}`);
-});
-
 // Export the Express API
 module.exports = app;
+
+// Start the server only if not running in a serverless environment
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 3000;
+  server.listen(PORT, () => {
+    console.log(`Server running in development mode on port ${PORT}`);
+  });
+}

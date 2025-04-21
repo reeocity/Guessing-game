@@ -2,9 +2,11 @@
 const socket = io({
     autoConnect: false,
     reconnection: true,
-    reconnectionAttempts: 5,
+    reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
-    transports: ['websocket', 'polling']
+    reconnectionDelayMax: 5000,
+    timeout: 20000,
+    transports: ['polling', 'websocket']
 });
 
 // Connect to the server
@@ -19,6 +21,21 @@ socket.on('connect_error', (error) => {
 socket.on('reconnect', (attemptNumber) => {
     console.log('Reconnected after', attemptNumber, 'attempts');
     addMessage("System", "✅ Reconnected to the server!");
+});
+
+socket.on('reconnect_attempt', (attemptNumber) => {
+    console.log('Reconnection attempt', attemptNumber);
+    addMessage("System", `🔄 Reconnection attempt ${attemptNumber}...`);
+});
+
+socket.on('reconnect_error', (error) => {
+    console.error('Reconnection error:', error);
+    addMessage("System", "❌ Reconnection failed. Trying again...");
+});
+
+socket.on('reconnect_failed', () => {
+    console.error('Reconnection failed');
+    addMessage("System", "❌ Could not reconnect to the server. Please refresh the page.");
 });
 
 let currentPlayer = null;
