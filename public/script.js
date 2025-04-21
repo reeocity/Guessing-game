@@ -37,14 +37,23 @@ document.getElementById("joinGame").addEventListener("click", () => {
 
 // Update game state
 socket.on("gameUpdated", (data) => {
+    console.log("Game updated:", data);
     updatePlayersList(data.players, data.gameMaster);
     updateScoresList(data.scores);
     document.getElementById("playerCount").textContent = data.players.length;
     
+    // Update game master controls visibility
+    const gameMasterSection = document.getElementById("gameMasterSection");
     if (currentPlayer === data.gameMaster) {
-        document.getElementById("gameMasterSection").style.display = "block";
+        gameMasterSection.style.display = "block";
+        addMessage("System", "👑 You are now the game master!");
     } else {
-        document.getElementById("gameMasterSection").style.display = "none";
+        gameMasterSection.style.display = "none";
+    }
+    
+    // Update game state
+    if (data.gameState === 'waiting') {
+        document.getElementById("gameSession").style.display = "none";
     }
 });
 
@@ -226,30 +235,17 @@ socket.on("gameEnded", (data) => {
     }
 });
 
-// Add game state update handler
-socket.on("gameUpdated", (data) => {
-    // Update players list
+// Handle game master updates
+socket.on("gameMasterUpdated", (data) => {
+    console.log("Game master updated:", data.gameMaster);
     updatePlayersList(data.players, data.gameMaster);
-    
-    // Update scores
     updateScoresList(data.scores);
     
-    // Update game master controls
+    // Update game master controls visibility
     const gameMasterSection = document.getElementById("gameMasterSection");
-    const startGameButton = document.getElementById("startGame");
-    const questionInput = document.getElementById("question");
-    const answerInput = document.getElementById("answer");
-    
     if (currentPlayer === data.gameMaster) {
         gameMasterSection.style.display = "block";
-        startGameButton.disabled = false;
-        questionInput.disabled = false;
-        answerInput.disabled = false;
-        
-        // If game is not started, focus on question input
-        if (data.gameState === 'waiting') {
-            questionInput.focus();
-        }
+        addMessage("System", "👑 You are now the game master!");
     } else {
         gameMasterSection.style.display = "none";
     }
@@ -259,22 +255,6 @@ socket.on("gameUpdated", (data) => {
 socket.on("error", (message) => {
     console.error("Server error:", message);
     addMessage("System", `❌ Error: ${message}`);
-});
-
-// Chat functionality
-document.getElementById("chatMessage").addEventListener("keypress", (e) => {
-    if (e.key === "Enter") {
-        e.preventDefault(); // Prevent default form submission
-        const message = e.target.value.trim();
-        if (message) {
-            socket.emit("sendMessage", { player: currentPlayer, message });
-            e.target.value = "";
-        }
-    }
-});
-
-socket.on("newMessage", (message) => {
-    addMessage(message.player, message.message);
 });
 
 // Helper functions
@@ -334,3 +314,19 @@ function addMessage(sender, message, isError = false) {
     messagesDiv.appendChild(messageDiv);
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
+
+// Chat functionality
+document.getElementById("userAnswer").addEventListener("keypress", (e) => {
+    if (e.key === "Enter") {
+        e.preventDefault();
+        const message = e.target.value.trim();
+        if (message) {
+            socket.emit("submitAnswer", { player: currentPlayer, answer: message });
+            e.target.value = "";
+        }
+    }
+});
+
+socket.on("newMessage", (message) => {
+    addMessage(message.player, message.message);
+});

@@ -41,6 +41,20 @@ const gameSession = new GameSession();
 const gameTimer = new GameTimer();
 const questionManager = new QuestionManager();
 
+// Track current game master
+let currentGameMaster = null;
+
+function updateGameMaster(newGameMaster) {
+    currentGameMaster = newGameMaster;
+    console.log("Game master updated to:", currentGameMaster);
+    // Notify all players of the new game master
+    io.emit("gameMasterUpdated", {
+        gameMaster: currentGameMaster,
+        players: playerManager.getPlayers(),
+        scores: playerManager.getScores()
+    });
+}
+
 function endGame(winner) {
     // Stop the timer
     gameTimer.stop();
@@ -49,13 +63,13 @@ function endGame(winner) {
     gameSession.endRound(winner);
     
     // Award points if there's a winner who's not the game master
-    if (winner && winner !== playerManager.getNextGameMaster(winner)) {
+    if (winner && winner !== currentGameMaster) {
         playerManager.awardPoints(winner);
     }
     
     // Create end message
     const endMessage = winner 
-        ? winner === playerManager.getNextGameMaster(winner)
+        ? winner === currentGameMaster
             ? `Game master ${winner} guessed correctly! The answer was: ${questionManager.getAnswer()}`
             : `${winner} won round ${gameSession.round}! The answer was: ${questionManager.getAnswer()}`
         : `Time's up for round ${gameSession.round}! The answer was: ${questionManager.getAnswer()}`;
@@ -64,8 +78,11 @@ function endGame(winner) {
     gameSession.addMessage("System", endMessage);
     io.emit("newMessage", gameSession.messages[gameSession.messages.length - 1]);
     
-    // Get the new game master before sending game end event
-    const newGameMaster = playerManager.getNextGameMaster(winner);
+    // Get the new game master
+    const newGameMaster = playerManager.getNextGameMaster(currentGameMaster);
+    
+    // Update the game master
+    updateGameMaster(newGameMaster);
     
     // Send game end event to all players
     io.emit("gameEnded", {
@@ -88,7 +105,7 @@ function endGame(winner) {
         gameMaster: newGameMaster,
         scores: playerManager.getScores(),
         round: gameSession.round,
-        gameState: 'waiting'  // Always set to waiting after round ends
+        gameState: 'waiting'
     });
 }
 
@@ -101,10 +118,14 @@ io.on("connection", (socket) => {
             if (!gameSession.started) {
                 if (playerManager.addPlayer(playerName)) {
                     currentPlayer = playerName;
-                    const gameMaster = playerManager.getNextGameMaster(null);
+                    // Set initial game master if none exists
+                    if (!currentGameMaster) {
+                        const initialGameMaster = playerManager.getNextGameMaster(null);
+                        updateGameMaster(initialGameMaster);
+                    }
                     io.emit("gameUpdated", {
                         players: playerManager.getPlayers(),
-                        gameMaster: gameMaster,
+                        gameMaster: currentGameMaster,
                         scores: playerManager.getScores(),
                         round: gameSession.round,
                         gameState: 'waiting'
@@ -119,7 +140,6 @@ io.on("connection", (socket) => {
     socket.on("startGame", ({ question, answer }) => {
         try {
             console.log("Start game attempt by:", currentPlayer);
-            const currentGameMaster = playerManager.getNextGameMaster(null);
             console.log("Current game master:", currentGameMaster);
             console.log("Player count:", playerManager.getPlayerCount());
             
@@ -194,9 +214,14 @@ io.on("connection", (socket) => {
     socket.on("disconnect", () => {
         if (currentPlayer) {
             playerManager.removePlayer(currentPlayer);
+            // If the disconnected player was the game master, assign a new one
+            if (currentPlayer === currentGameMaster) {
+                const newGameMaster = playerManager.getNextGameMaster(currentGameMaster);
+                updateGameMaster(newGameMaster);
+            }
             io.emit("gameUpdated", {
                 players: playerManager.getPlayers(),
-                gameMaster: playerManager.getNextGameMaster(null),
+                gameMaster: currentGameMaster,
                 scores: playerManager.getScores(),
                 round: gameSession.round
             });
