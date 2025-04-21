@@ -6,7 +6,10 @@ const socket = io({
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
     timeout: 20000,
-    transports: ['polling', 'websocket']
+    transports: ['polling', 'websocket'],
+    path: '/socket.io/',
+    withCredentials: false,
+    forceNew: true
 });
 
 // Connect to the server

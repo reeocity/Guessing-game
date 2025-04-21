@@ -19,12 +19,16 @@ app.use(express.static(path.join(__dirname, "public")));
 // Configure CORS for Socket.IO
 const io = new Server(server, {
   cors: {
-    origin: "*", // Allow all origins in development
-    methods: ["GET", "POST"],
-    credentials: true
+    origin: "*",
+    methods: ["GET", "POST", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type"]
   },
-  transports: ['polling', 'websocket'], // Enable both polling and websocket
-  allowEIO3: true // Allow Engine.IO v3 clients
+  transports: ['polling', 'websocket'],
+  allowEIO3: true,
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  cookie: false
 });
 
 // Serve Socket.IO client
@@ -232,8 +236,8 @@ module.exports = app;
 
 // Start the server only if not running in a serverless environment
 if (process.env.NODE_ENV !== 'production') {
-  const PORT = process.env.PORT || 3000;
+  const PORT = process.env.PORT || 4000;
   server.listen(PORT, () => {
-    console.log(`Server running in development mode on port ${PORT}`);
+    console.log(`Server running on http://localhost:${PORT}`);
   });
 }
