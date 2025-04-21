@@ -118,8 +118,13 @@ io.on("connection", (socket) => {
 
     socket.on("startGame", ({ question, answer }) => {
         try {
+            console.log("Start game attempt by:", currentPlayer);
             const currentGameMaster = playerManager.getNextGameMaster(null);
+            console.log("Current game master:", currentGameMaster);
+            console.log("Player count:", playerManager.getPlayerCount());
+            
             if (currentPlayer === currentGameMaster && playerManager.getPlayerCount() > 2) {
+                console.log("Starting game with question:", question);
                 questionManager.setQuestion(question, answer);
                 gameSession.startRound(question, answer);
                 
@@ -150,11 +155,14 @@ io.on("connection", (socket) => {
                     gameState: 'playing'
                 });
             } else if (playerManager.getPlayerCount() <= 2) {
+                console.log("Not enough players to start game");
                 socket.emit("error", "Need more than 2 players to start the game");
             } else if (currentPlayer !== currentGameMaster) {
+                console.log("Player is not the game master");
                 socket.emit("error", "Only the game master can start the game");
             }
         } catch (error) {
+            console.error("Error starting game:", error);
             socket.emit("error", error.message);
         }
     });

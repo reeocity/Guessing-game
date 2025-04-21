@@ -52,15 +52,22 @@ socket.on("gameUpdated", (data) => {
 document.getElementById("startGame").addEventListener("click", () => {
     const question = document.getElementById("question").value.trim();
     const answer = document.getElementById("answer").value.trim();
+    
+    console.log("Attempting to start game with:", { question, answer });
+    
     if (question && answer) {
         socket.emit("startGame", { question, answer });
         document.getElementById("question").value = "";
         document.getElementById("answer").value = "";
+    } else {
+        console.log("Missing question or answer");
+        addMessage("System", "❌ Please enter both a question and an answer!");
     }
 });
 
-// Game started
+// Handle game start response
 socket.on("gameStarted", (data) => {
+    console.log("Game started with data:", data);
     document.getElementById("gameSession").style.display = "block";
     document.getElementById("questionDisplay").textContent = data.question;
     document.getElementById("timeLeft").textContent = `⏱️ Time left: ${data.timeLeft} seconds`;
@@ -248,8 +255,9 @@ socket.on("gameUpdated", (data) => {
     }
 });
 
-// Add error handler
+// Handle errors
 socket.on("error", (message) => {
+    console.error("Server error:", message);
     addMessage("System", `❌ Error: ${message}`);
 });
 
