@@ -6,19 +6,31 @@ const socket = io({
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
     timeout: 20000,
-    transports: ['polling', 'websocket'],
+    transports: ['websocket', 'polling'],
     path: '/socket.io/',
     withCredentials: false,
-    forceNew: true
+    forceNew: true,
+    perMessageDeflate: true
 });
 
 // Connect to the server
+console.log('Attempting to connect to server...');
 socket.connect();
+
+// Handle connection events
+socket.on('connect', () => {
+    console.log('Successfully connected to server');
+    addMessage("System", "✅ Connected to server!");
+});
 
 // Handle connection errors
 socket.on('connect_error', (error) => {
-    console.error('Connection error:', error);
-    addMessage("System", "❌ Connection error. Trying to reconnect...");
+    console.error('Connection error details:', {
+        message: error.message,
+        description: error.description,
+        type: error.type
+    });
+    addMessage("System", `❌ Connection error: ${error.message}`);
 });
 
 socket.on('reconnect', (attemptNumber) => {
@@ -48,10 +60,12 @@ let attemptsLeft = 3;
 document.getElementById("joinGame").addEventListener("click", () => {
     const playerName = document.getElementById("playerName").value.trim();
     if (playerName) {
+        console.log(`Attempting to join game as: ${playerName}`);
         currentPlayer = playerName;
         socket.emit("joinGame", playerName);
         document.getElementById("joinGame").disabled = true;
         document.getElementById("playerName").disabled = true;
+        addMessage("System", "🎮 Joining game...");
     }
 });
 
@@ -82,12 +96,24 @@ document.getElementById("startGame").addEventListener("click", () => {
     const question = document.getElementById("question").value.trim();
     const answer = document.getElementById("answer").value.trim();
     
-    console.log("Attempting to start game with:", { question, answer });
+    console.log("Attempting to start game with:", { 
+        question, 
+        answer,
+        isGameMaster: currentPlayer,
+        socketConnected: socket.connected
+    });
     
     if (question && answer) {
+        if (!socket.connected) {
+            console.error("Socket not connected when trying to start game");
+            addMessage("System", "❌ Not connected to server. Please refresh the page.");
+            return;
+        }
+        
         socket.emit("startGame", { question, answer });
         document.getElementById("question").value = "";
         document.getElementById("answer").value = "";
+        addMessage("System", "🎲 Starting game...");
     } else {
         console.log("Missing question or answer");
         addMessage("System", "❌ Please enter both a question and an answer!");

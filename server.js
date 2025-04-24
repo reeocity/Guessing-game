@@ -16,19 +16,44 @@ const server = http.createServer(app);
 // Serve static files from the public directory
 app.use(express.static(path.join(__dirname, "public")));
 
-// Configure CORS for Socket.IO
+// Configure CORS for Socket.IO with enhanced settings
 const io = new Server(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST", "OPTIONS"],
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
     credentials: true,
-    allowedHeaders: ["Content-Type"]
+    allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept"]
   },
-  transports: ['polling', 'websocket'],
+  transports: ['websocket', 'polling'],
   allowEIO3: true,
   pingTimeout: 60000,
   pingInterval: 25000,
-  cookie: false
+  cookie: false,
+  connectTimeout: 45000,
+  maxHttpBufferSize: 1e6, // 1MB
+  path: '/socket.io/',
+  serveClient: true,
+  allowUpgrades: true,
+  perMessageDeflate: {
+    threshold: 2048
+  }
+});
+
+// Add middleware to handle connection errors
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (socket.handshake.headers.origin === undefined) {
+    return next(new Error('Origin not allowed'));
+  }
+  next();
+});
+
+// Error handling for the Socket.IO server
+io.engine.on("connection_error", (err) => {
+  console.log('Connection error:', err.req);
+  console.log('Error code:', err.code);
+  console.log('Error message:', err.message);
+  console.log('Error context:', err.context);
 });
 
 // Serve Socket.IO client
@@ -111,125 +136,156 @@ function endGame(winner) {
 }
 
 io.on("connection", (socket) => {
-    console.log(`User connected: ${socket.id}`);
-    let currentPlayer = null;
+  console.log("A user connected:", socket.id);
 
-    socket.on("joinGame", (playerName) => {
-        try {
-            if (!gameSession.started) {
-                if (playerManager.addPlayer(playerName)) {
-                    currentPlayer = playerName;
-                    // Set initial game master if none exists
-                    if (!currentGameMaster) {
-                        const initialGameMaster = playerManager.getNextGameMaster(null);
-                        updateGameMaster(initialGameMaster);
-                    }
-                    io.emit("gameUpdated", {
-                        players: playerManager.getPlayers(),
-                        gameMaster: currentGameMaster,
-                        scores: playerManager.getScores(),
-                        round: gameSession.round,
-                        gameState: 'waiting'
-                    });
-                }
-            }
-        } catch (error) {
-            socket.emit("error", error.message);
+  // Set up heartbeat to detect stale connections
+  const heartbeat = setInterval(() => {
+    socket.emit('ping');
+  }, 25000);
+
+  socket.on('pong', () => {
+    socket.isAlive = true;
+  });
+
+  // Clean up on disconnect
+  socket.on("disconnect", (reason) => {
+    clearInterval(heartbeat);
+    console.log(`Client ${socket.id} disconnected. Reason: ${reason}`);
+    
+    // Remove player from game if they were in one
+    if (currentPlayer) {
+        playerManager.removePlayer(currentPlayer);
+        // If the disconnected player was the game master, assign a new one
+        if (currentPlayer === currentGameMaster) {
+            const newGameMaster = playerManager.getNextGameMaster(currentGameMaster);
+            updateGameMaster(newGameMaster);
         }
-    });
+        io.emit("gameUpdated", {
+            players: playerManager.getPlayers(),
+            gameMaster: currentGameMaster,
+            scores: playerManager.getScores(),
+            round: gameSession.round
+        });
+    }
+  });
 
-    socket.on("startGame", ({ question, answer }) => {
-        try {
-            console.log("Start game attempt by:", currentPlayer);
-            console.log("Current game master:", currentGameMaster);
-            console.log("Player count:", playerManager.getPlayerCount());
-            
-            if (currentPlayer === currentGameMaster && playerManager.getPlayerCount() > 2) {
-                console.log("Starting game with question:", question);
-                questionManager.setQuestion(question, answer);
-                gameSession.startRound(question, answer);
-                
-                // Start the timer
-                gameTimer.start((timeLeft) => {
-                    io.emit("timeUpdate", timeLeft);
-                    if (timeLeft <= 0) {
-                        endGame(null);
-                    }
-                });
+  // Handle errors
+  socket.on("error", (error) => {
+    console.error(`Socket ${socket.id} error:`, error);
+    socket.disconnect(true);
+  });
 
-                io.emit("gameStarted", {
-                    question,
-                    timeLeft: gameTimer.getTimeLeft(),
-                    round: gameSession.round,
-                    gameMaster: currentGameMaster
-                });
+  let currentPlayer = null;
 
-                gameSession.addMessage("System", `Round ${gameSession.round} started! Question: ${question}`);
-                io.emit("newMessage", gameSession.messages[gameSession.messages.length - 1]);
-
-                // Update game state for all players
-                io.emit("gameUpdated", {
-                    players: playerManager.getPlayers(),
-                    gameMaster: currentGameMaster,
-                    scores: playerManager.getScores(),
-                    round: gameSession.round,
-                    gameState: 'playing'
-                });
-            } else if (playerManager.getPlayerCount() <= 2) {
-                console.log("Not enough players to start game");
-                socket.emit("error", "Need more than 2 players to start the game");
-            } else if (currentPlayer !== currentGameMaster) {
-                console.log("Player is not the game master");
-                socket.emit("error", "Only the game master can start the game");
-            }
-        } catch (error) {
-            console.error("Error starting game:", error);
-            socket.emit("error", error.message);
+  socket.on("joinGame", (playerName) => {
+    try {
+      if (!gameSession.started) {
+        if (playerManager.addPlayer(playerName)) {
+          currentPlayer = playerName;
+          // Set initial game master if none exists
+          if (!currentGameMaster) {
+            const initialGameMaster = playerManager.getNextGameMaster(null);
+            updateGameMaster(initialGameMaster);
+          }
+          io.emit("gameUpdated", {
+            players: playerManager.getPlayers(),
+            gameMaster: currentGameMaster,
+            scores: playerManager.getScores(),
+            round: gameSession.round,
+            gameState: 'waiting'
+          });
         }
-    });
+      }
+    } catch (error) {
+      socket.emit("error", error.message);
+    }
+  });
 
-    socket.on("submitAnswer", ({ player, answer }) => {
-        if (gameSession.started && !gameSession.winner && playerManager.attempts[player] < 3) {
-            playerManager.attempts[player]++;
-            
-            if (questionManager.checkAnswer(answer)) {
-                endGame(player);
-            } else {
-                const attemptsLeft = 3 - playerManager.attempts[player];
-                socket.emit("wrongAnswer", `Incorrect! ${attemptsLeft} attempts left.`);
-                
-                if (playerManager.attempts[player] >= 3) {
-                    socket.emit("outOfAttempts", "No more attempts left!");
-                }
-            }
-        }
-    });
+  socket.on("startGame", ({ question, answer }) => {
+    try {
+      console.log("Start game attempt by:", currentPlayer);
+      console.log("Current game master:", currentGameMaster);
+      console.log("Player count:", playerManager.getPlayerCount());
+      
+      if (currentPlayer === currentGameMaster && playerManager.getPlayerCount() > 2) {
+        console.log("Starting game with question:", question);
+        questionManager.setQuestion(question, answer);
+        gameSession.startRound(question, answer);
+        
+        // Start the timer
+        gameTimer.start((timeLeft) => {
+          io.emit("timeUpdate", timeLeft);
+          if (timeLeft <= 0) {
+            endGame(null);
+          }
+        });
 
-    socket.on("sendMessage", ({ player, message }) => {
-        if (playerManager.getPlayers().includes(player)) {
-            gameSession.addMessage(player, message);
-            io.emit("newMessage", gameSession.messages[gameSession.messages.length - 1]);
-        }
-    });
+        io.emit("gameStarted", {
+          question,
+          timeLeft: gameTimer.getTimeLeft(),
+          round: gameSession.round,
+          gameMaster: currentGameMaster
+        });
 
-    socket.on("disconnect", () => {
-        if (currentPlayer) {
-            playerManager.removePlayer(currentPlayer);
-            // If the disconnected player was the game master, assign a new one
-            if (currentPlayer === currentGameMaster) {
-                const newGameMaster = playerManager.getNextGameMaster(currentGameMaster);
-                updateGameMaster(newGameMaster);
-            }
-            io.emit("gameUpdated", {
-                players: playerManager.getPlayers(),
-                gameMaster: currentGameMaster,
-                scores: playerManager.getScores(),
-                round: gameSession.round
-            });
+        gameSession.addMessage("System", `Round ${gameSession.round} started! Question: ${question}`);
+        io.emit("newMessage", gameSession.messages[gameSession.messages.length - 1]);
+
+        // Update game state for all players
+        io.emit("gameUpdated", {
+          players: playerManager.getPlayers(),
+          gameMaster: currentGameMaster,
+          scores: playerManager.getScores(),
+          round: gameSession.round,
+          gameState: 'playing'
+        });
+      } else if (playerManager.getPlayerCount() <= 2) {
+        console.log("Not enough players to start game");
+        socket.emit("error", "Need more than 2 players to start the game");
+      } else if (currentPlayer !== currentGameMaster) {
+        console.log("Player is not the game master");
+        socket.emit("error", "Only the game master can start the game");
+      }
+    } catch (error) {
+      console.error("Error starting game:", error);
+      socket.emit("error", error.message);
+    }
+  });
+
+  socket.on("submitAnswer", ({ player, answer }) => {
+    if (gameSession.started && !gameSession.winner && playerManager.attempts[player] < 3) {
+      playerManager.attempts[player]++;
+      
+      if (questionManager.checkAnswer(answer)) {
+        endGame(player);
+      } else {
+        const attemptsLeft = 3 - playerManager.attempts[player];
+        socket.emit("wrongAnswer", `Incorrect! ${attemptsLeft} attempts left.`);
+        
+        if (playerManager.attempts[player] >= 3) {
+          socket.emit("outOfAttempts", "No more attempts left!");
         }
-        console.log("User disconnected");
-    });
+      }
+    }
+  });
+
+  socket.on("sendMessage", ({ player, message }) => {
+    if (playerManager.getPlayers().includes(player)) {
+      gameSession.addMessage(player, message);
+      io.emit("newMessage", gameSession.messages[gameSession.messages.length - 1]);
+    }
+  });
 });
+
+// Periodic cleanup of stale connections
+setInterval(() => {
+  io.sockets.sockets.forEach((socket) => {
+    if (socket.isAlive === false) {
+      return socket.disconnect(true);
+    }
+    socket.isAlive = false;
+    socket.emit('ping');
+  });
+}, 30000);
 
 // Export the Express API
 module.exports = app;
