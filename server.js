@@ -56,11 +56,6 @@ io.engine.on("connection_error", (err) => {
   console.log('Error context:', err.context);
 });
 
-// Serve Socket.IO client
-app.get('/socket.io/socket.io.js', (req, res) => {
-  res.sendFile(path.join(__dirname, 'node_modules/socket.io/client-dist/socket.io.js'));
-});
-
 // Initialize game components
 const playerManager = new PlayerManager();
 const gameSession = new GameSession();
